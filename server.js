@@ -28,7 +28,7 @@ app.post('/gerar-pix', async (req, res) => {
 
     console.log('Enviando para SyncPay:', JSON.stringify(bodyData));
 
-    const response = await fetch('https://syncpay.apidog.io/api/partner/v1/cash-in', {
+    const response = await fetch('https://api.syncpay.com.br/api/partner/v1/cash-in', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SYNC_TOKEN}`,
@@ -37,7 +37,9 @@ app.post('/gerar-pix', async (req, res) => {
       body: JSON.stringify(bodyData)
     });
 
+    // Log da resposta raw para debug
     const dataText = await response.text();
+    console.log('Resposta raw da SyncPay:', dataText);
 
     let data;
     try {
@@ -68,7 +70,7 @@ app.post('/gerar-pix', async (req, res) => {
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const response = await fetch(`https://syncpay.apidog.io/api/partner/v1/cash-in/${id}`, {
+    const response = await fetch(`https://api.syncpay.com.br/api/partner/v1/cash-in/${id}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${SYNC_TOKEN}` }
     });
