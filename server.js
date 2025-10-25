@@ -7,11 +7,9 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
-
-// 🔑 Seu token da SyncPay
 const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
 
-// 🧾 Gerar PIX
+// Gerar PIX
 app.post('/gerar-pix', async (req, res) => {
   try {
     const valor = 12.90;
@@ -46,19 +44,30 @@ app.post('/gerar-pix', async (req, res) => {
     try {
       data = JSON.parse(dataText);
     } catch (err) {
-      console.error('❌ Resposta não é JSON:', dataText);
+      console.error('❌ Resposta não é JSON válida:', dataText);
       return res.status(500).json({ error: 'Resposta inválida da SyncPay', raw: dataText });
     }
 
-    console.log('✅ Resposta da SyncPay (convertida):', data);
+    console.log('✅ Resposta JSON da SyncPay:', data);
 
-    if (!data.id || !data.pix_copy_paste) {
-      return res.status(500).json({ error: 'Não foi possível gerar PIX', detalhes: data });
+    // Captura flexível de qualquer campo de PIX
+    const pixCode =
+      data.pix_copy_paste ||
+      data.brcode ||
+      data.qrcode ||
+      (data.pix && (data.pix.brcode || data.pix.qrcode || data.pix.copy_paste)) ||
+      null;
+
+    if (!pixCode) {
+      return res.status(500).json({
+        error: 'Nenhum código PIX retornado',
+        resposta: data
+      });
     }
 
     res.json({
-      pixCode: data.pix_copy_paste,
-      paymentId: data.id
+      pixCode: pixCode,
+      paymentId: data.id || data.txid || null
     });
 
   } catch (e) {
@@ -67,7 +76,7 @@ app.post('/gerar-pix', async (req, res) => {
   }
 });
 
-// 🟢 Consultar status do pagamento
+// Status do pagamento
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   try {
