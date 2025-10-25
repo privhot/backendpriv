@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 10000;
 // 🔑 Seu token da SyncPay
 const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
 
-// 🧾 Rota para gerar PIX
+// 🧾 Gerar PIX
 app.post('/gerar-pix', async (req, res) => {
   try {
     const valor = 12.90;
@@ -30,7 +30,7 @@ app.post('/gerar-pix', async (req, res) => {
 
     console.log('🔹 Enviando para SyncPay:', JSON.stringify(bodyData));
 
-    const response = await fetch('https://app.syncpay.com.br/api/partner/v1/cash-in', {
+    const response = await fetch('https://api.syncpayments.com.br/api/partner/v1/cash-in', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SYNC_TOKEN}`,
@@ -67,11 +67,11 @@ app.post('/gerar-pix', async (req, res) => {
   }
 });
 
-// 🟢 Rota para consultar o status de pagamento
+// 🟢 Consultar status do pagamento
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const response = await fetch(`https://app.syncpay.com.br/api/partner/v1/cash-in/${id}`, {
+    const response = await fetch(`https://api.syncpayments.com.br/api/partner/v1/cash-in/${id}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${SYNC_TOKEN}`
