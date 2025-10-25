@@ -1,79 +1,86 @@
-// server.js
-import express from 'express';
-import fetch from 'node-fetch'; // se não tiver, instale: npm install node-fetch
-import cors from 'cors';
-import bodyParser from 'body-parser';
+import express from "express";
+import fetch from "node-fetch"; // Se Node >=18, pode usar fetch nativo
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-
-// Seu token da SyncPay
-const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
+const SYNC_TOKEN = "c868ca1a-4f65-4a3e-b545-fd71ba4fec3b"; // seu token SyncPay
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
 // Endpoint para gerar PIX
-app.post('/gerar-pix', async (req, res) => {
-  const { value, description } = req.body;
-
-  if (!value || !description) {
-    return res.status(400).json({ error: 'Valor e descrição são obrigatórios' });
-  }
-
+app.post("/gerar-pix", async (req, res) => {
   try {
+    const { value, description } = req.body;
+
+    if (!value || !description) {
+      return res.status(400).json({ error: "value e description são obrigatórios" });
+    }
+
+    // Corpo da requisição SyncPay
     const body = {
-      amount: value / 100, // 1290 -> 12.90
+      amount: value / 100, // valor em reais (12,90 -> 12.9)
       description: description,
-      webhook_url: 'https://seusite.com/webhook',
+      webhook_url: "https://seusite.com/webhook", // opcional
       client: {
-        name: 'Cliente Teste',
-        cpf: '12345678900',
-        email: 'teste@cliente.com',
-        phone: '11999999999'
+        name: "Cliente Teste",
+        cpf: "00000000000",
+        email: "cliente@teste.com",
+        phone: "11999999999"
       }
     };
 
-    const response = await fetch('https://syncpay.apidog.io/api/partner/v1/cash-in', {
-      method: 'POST',
+    const response = await fetch("https://syncpay.apidog.io/api/partner/v1/cash-in", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${SYNC_TOKEN}`,
-        'Content-Type': 'application/json'
+        "Authorization": `Bearer ${SYNC_TOKEN}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(body)
     });
 
     const data = await response.json();
 
-    if (!data.pix || !data.pix.code) {
-      console.log('Erro SyncPay:', data);
-      return res.status(500).json({ error: 'Erro ao gerar PIX', raw: data });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data });
     }
 
-    res.json({
-      pixCode: data.pix.code,
-      paymentId: data.id || null
+    // Retornar apenas o código PIX e ID do pagamento
+    return res.json({
+      pixCode: data.pix_code || data.code || "", // depende do retorno da SyncPay
+      paymentId: data.id || ""
     });
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+  } catch (error) {
+    console.error("Erro ao gerar PIX:", error);
+    return res.status(500).json({ error: "Erro interno ao gerar PIX" });
   }
 });
 
-// Endpoint para checar status (opcional)
-app.get('/payment-status/:id', async (req, res) => {
-  const { id } = req.params;
+// Status do pagamento (opcional)
+app.get("/payment-status/:id", async (req, res) => {
   try {
-    const response = await fetch(`https://syncpay.apidog.io/api/partner/v1/payments/${id}`, {
-      headers: {
-        'Authorization': `Bearer ${SYNC_TOKEN}`
-      }
+    const { id } = req.params;
+
+    const response = await fetch(`https://syncpay.apidog.io/api/partner/v1/cash-in/${id}`, {
+      headers: { "Authorization": `Bearer ${SYNC_TOKEN}` }
     });
+
     const data = await response.json();
-    res.json({ status: data.status || 'pending' });
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao verificar status', details: err.message });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data });
+    }
+
+    // Exemplo simples: se estiver pago
+    return res.json({
+      status: data.status || "pending"
+    });
+
+  } catch (error) {
+    console.error("Erro ao consultar status:", error);
+    return res.status(500).json({ error: "Erro interno ao consultar status" });
   }
 });
 
