@@ -1,23 +1,23 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const bodyParser = require('body-parser');
+import express from 'express';
+import axios from 'axios';
+import cors from 'cors';
+import bodyParser from 'body-parser';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Substitua pelo seu token da SyncPay
+// Token da SyncPay
 const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// Rota para teste
+// Rota raiz
 app.get('/', (req, res) => {
   res.send('Backend SyncPay rodando!');
 });
 
-// Rota para criar cobrança
+// Criar pagamento
 app.post('/create-payment', async (req, res) => {
   const { name, cpf, email, phone } = req.body;
 
