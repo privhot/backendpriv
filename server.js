@@ -74,4 +74,11 @@ app.get('/payment-status/:id', async (req, res) => {
     });
 
     const data = await response.json();
-    res.json({ status:
+    res.json({ status: data.status });
+  } catch (e) {
+    console.error('Erro status:', e);
+    res.status(500).json({ status: 'error', detalhes: e.message });
+  }
+});
+
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
