@@ -1,69 +1,80 @@
 // server.js
 import express from 'express';
-import fetch from 'node-fetch';
+import fetch from 'node-fetch'; // se não tiver, instale: npm install node-fetch
 import cors from 'cors';
+import bodyParser from 'body-parser';
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+const PORT = process.env.PORT || 10000;
 
+// Seu token da SyncPay
 const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
 
-app.post('/gerar-pix', async (req, res) => {
-  try {
-    const { value, description } = req.body;
+app.use(cors());
+app.use(bodyParser.json());
 
-    const response = await fetch('https://api.syncpay.com/api/partner/v1/cash-in', {
+// Endpoint para gerar PIX
+app.post('/gerar-pix', async (req, res) => {
+  const { value, description } = req.body;
+
+  if (!value || !description) {
+    return res.status(400).json({ error: 'Valor e descrição são obrigatórios' });
+  }
+
+  try {
+    const body = {
+      amount: value / 100, // 1290 -> 12.90
+      description: description,
+      webhook_url: 'https://seusite.com/webhook',
+      client: {
+        name: 'Cliente Teste',
+        cpf: '12345678900',
+        email: 'teste@cliente.com',
+        phone: '11999999999'
+      }
+    };
+
+    const response = await fetch('https://syncpay.apidog.io/api/partner/v1/cash-in', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SYNC_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        amount: value / 100, // R$ 12,90 => 12.90
-        description: description,
-        webhook_url: 'https://backendpriv-1.onrender.com/webhook',
-        client: {
-          name: 'Cliente Teste',
-          cpf: '12345678900',
-          email: 'teste@teste.com',
-          phone: '51123123123'
-        }
-      })
+      body: JSON.stringify(body)
     });
 
     const data = await response.json();
 
-    // Ajuste aqui se a SyncPay retornar outro nome para o código PIX
+    if (!data.pix || !data.pix.code) {
+      console.log('Erro SyncPay:', data);
+      return res.status(500).json({ error: 'Erro ao gerar PIX', raw: data });
+    }
+
     res.json({
-      pixCode: data.pix_copy_and_paste || data.pix_copia_e_cola || 'Código não disponível',
-      paymentId: data.id
+      pixCode: data.pix.code,
+      paymentId: data.id || null
     });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erro ao gerar PIX.' });
+    res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
   }
 });
 
-// Endpoint opcional para verificar status do pagamento
+// Endpoint para checar status (opcional)
 app.get('/payment-status/:id', async (req, res) => {
+  const { id } = req.params;
   try {
-    const { id } = req.params;
-
-    const response = await fetch(`https://api.syncpay.com/api/partner/v1/payment-status/${id}`, {
+    const response = await fetch(`https://syncpay.apidog.io/api/partner/v1/payments/${id}`, {
       headers: {
-        'Authorization': `Bearer ${SYNC_TOKEN}`,
-        'Content-Type': 'application/json'
+        'Authorization': `Bearer ${SYNC_TOKEN}`
       }
     });
-
     const data = await response.json();
-    res.json({ status: data.status });
+    res.json({ status: data.status || 'pending' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao consultar status do pagamento.' });
+    res.status(500).json({ error: 'Erro ao verificar status', details: err.message });
   }
 });
 
-app.listen(10000, () => console.log('Servidor rodando na porta 10000'));
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
