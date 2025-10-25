@@ -1,35 +1,38 @@
-import express from 'express';
-import axios from 'axios';
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const bodyParser = require('body-parser');
 
 const app = express();
-app.use(express.json());
-
 const PORT = process.env.PORT || 3000;
-const SYNC_API_TOKEN = process.env.SYNC_API_TOKEN; // token no Render como variável de ambiente
-const SYNC_API_URL = 'https://syncpay.apidog.io';
 
-// Endpoint para criar pagamento de R$12,90
+// Substitua pelo seu token da SyncPay
+const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b';
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// Rota para teste
+app.get('/', (req, res) => {
+  res.send('Backend SyncPay rodando!');
+});
+
+// Rota para criar cobrança
 app.post('/create-payment', async (req, res) => {
-  try {
-    const client = {
-      name: req.body.name || 'Cliente Teste',
-      cpf: req.body.cpf || '12345678900',
-      email: req.body.email || 'teste@teste.com',
-      phone: req.body.phone || '51123123123',
-    };
+  const { name, cpf, email, phone } = req.body;
 
+  try {
     const response = await axios.post(
-      `${SYNC_API_URL}/api/partner/v1/cash-in`,
+      'https://syncpay.apidog.io/api/partner/v1/cash-in',
       {
         amount: 12.90,
-        description: "Pagamento de R$12,90",
-        webhook_url: req.body.webhook_url || "https://seusite.com/webhook",
-        client,
-        split: []
+        description: "Pagamento VIP",
+        webhook_url: "https://seusite.com/webhook",
+        client: { name, cpf, email, phone }
       },
       {
         headers: {
-          Authorization: `Bearer ${SYNC_API_TOKEN}`,
+          Authorization: `Bearer ${SYNC_TOKEN}`,
           'Content-Type': 'application/json'
         }
       }
@@ -37,12 +40,11 @@ app.post('/create-payment', async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error('Erro ao criar pagamento:', error.response?.data || error.message);
+    console.error(error.response?.data || error.message);
     res.status(500).json({ error: 'Erro ao criar pagamento' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend rodando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
-
