@@ -9,18 +9,28 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// Suas chaves SyncPay hardcoded
+// Chaves SyncPay hardcoded
 const CLIENT_ID = '2c34d421-423a-43fe-82f1-135068e3fe74';
 const CLIENT_SECRET = '4c20d31d-c68a-44f5-ad88-eedd5d6dae1e';
-const BASE_URL = 'https://api.syncpayments.com.br';
+const BASE_URL = 'https://api.trysynch.com'; // URL real da doc SyncPay/SynchPay
 
-// Função pra gerar token Bearer (chamada a cada /gerar-pix)
+// Cache simples pro token (evita regenerar toda hora)
+let cachedToken = null;
+let tokenExpiry = 0; // Timestamp de expiração
+
+// Função pra pegar/regenerar token
 async function getAccessToken() {
+  const now = Date.now();
+  if (cachedToken && now < tokenExpiry) {
+    console.log('🔑 Usando token cached');
+    return cachedToken;
+  }
+
   try {
-    console.log('🔑 Gerando token SyncPay...');
+    console.log('🔑 Gerando novo token SyncPay...');
     const response = await fetch(`${BASE_URL}/Authentication/Token`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }, // Sem Authorization aqui!
       body: JSON.stringify({
         clientId: CLIENT_ID,
         clientSecret: CLIENT_SECRET
@@ -34,9 +44,10 @@ async function getAccessToken() {
     }
 
     const data = await response.json();
-    const token = data.accessToken;
+    cachedToken = data.accessToken;
+    tokenExpiry = now + (data.expiresInSeconds * 1000) - 300000; // Cache por 5 min antes de expiry
     console.log('✅ Token gerado (expira em', data.expiresInSeconds, 's)');
-    return token;
+    return cachedToken;
   } catch (e) {
     console.error('❌ Erro getToken:', e);
     throw e;
@@ -62,7 +73,6 @@ const validatePixRequest = (req, res, next) => {
 app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   let token;
   try {
-    // Gera token fresco
     token = await getAccessToken();
 
     const { amount, description = 'Pagamento PIX', callback_url = 'https://backendpriv-1.onrender.com/webhook', client } = req.body;
@@ -123,12 +133,12 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
     });
 
   } catch (e) {
-    console.error('❌ Erro backend (inclui token):', e);
+    console.error('❌ Erro backend:', e);
     res.status(500).json({ error: 'Erro interno ao gerar PIX', details: e.message });
   }
 });
 
-// Endpoint: Status (usa token fresco também)
+// Endpoint: Status
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID obrigatório' });
@@ -139,9 +149,7 @@ app.get('/payment-status/:id', async (req, res) => {
 
     const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in/${id}`, {
       method: 'GET',
-      headers: { 
-        'Authorization': `Bearer ${token}` 
-      }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
 
     if (!response.ok) {
@@ -163,21 +171,14 @@ app.get('/payment-status/:id', async (req, res) => {
   }
 });
 
-// Webhook (sem token, SyncPay envia pra cá)
+// Webhook
 app.post('/webhook', (req, res) => {
   try {
     const { event, data } = req.body;
-    const signature = req.headers['x-syncpay-signature'];
-
-    // Verifica signature se você tiver SYNC_SECRET (adicione hardcoded se quiser)
-    // const SYNC_SECRET = 'sua_chave_secreta';
-    // if (SYNC_SECRET) { ... } // Mesmo código anterior
-
     if (event === 'cash_in.status_updated') {
       console.log('🔄 Webhook recebido:', data.id, 'Status:', data.status);
-      // TODO: Atualize DB, libere acesso, etc.
+      // TODO: Libere acesso, etc.
     }
-
     res.status(200).send('OK');
   } catch (e) {
     console.error('❌ Erro webhook:', e);
