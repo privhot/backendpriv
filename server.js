@@ -1,7 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import cors from 'cors';
-import crypto from 'crypto';
+import crypto from 'crypto'; // Pra webhook
 
 const app = express();
 app.use(cors());
@@ -9,10 +9,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// Chaves HooPay
+// Chaves HooPay hardcoded
 const CLIENT_ID = '69ed34bb6a849cfd32c01b16c56050ec';
 const CLIENT_SECRET = 'fbee087d641bad7eea36ebdb33fc167f3ba2a94d4d67ffe2a5bb5e8685d7fca6';
-const BASE_URL = 'https://sandbox-api.hoopay.com.br'; // ← Mudança: Sandbox pra teste (troque pra prod se OK)
+const BASE_URL = 'https://api.hoopay.com.br'; // ← Fix: Prod API (confirme na dashboard se sandbox for diferente)
 const CALLBACK_URL = 'https://backendpriv-1.onrender.com/webhook';
 
 const getBasicAuth = () => `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`;
@@ -26,6 +26,7 @@ const validatePixRequest = (req, res, next) => {
   next();
 };
 
+// Endpoint: Gerar PIX
 app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   try {
     const { amount, description = 'Pagamento PIX', client } = req.body;
@@ -44,10 +45,10 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
       data: { ip, callbackURL: CALLBACK_URL }
     };
 
-    console.log('🔹 URL Teste:', `${BASE_URL}/charge`); // ← Novo log pra debug URL
+    console.log('🔹 URL HooPay:', `${BASE_URL}/charge`);
     console.log('🔹 Enviando para HooPay:', JSON.stringify(bodyData, null, 2));
 
-    const response = await fetch(`${BASE_URL}/charge`, {  // ← Se precisar /v1/charge, adicione aqui
+    const response = await fetch(`${BASE_URL}/charge`, {
       method: 'POST',
       headers: {
         'Authorization': getBasicAuth(),
@@ -56,7 +57,7 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
       body: JSON.stringify(bodyData)
     });
 
-    console.log('Status HooPay:', response.status); // ← Log extra
+    console.log('Status HooPay:', response.status);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -96,22 +97,26 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   }
 });
 
-// Status e Webhook iguais ao anterior...
+// Endpoint: Status
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID obrigatório' });
 
   try {
+    console.log('🔍 Consultando status em:', `${BASE_URL}/pix/consult/${id}`);
     const response = await fetch(`${BASE_URL}/pix/consult/${id}`, {
       method: 'GET',
       headers: { 'Authorization': getBasicAuth() }
     });
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: 'Pagamento não encontrado' });
+      const errorText = await response.text();
+      console.error('❌ Erro status HooPay:', response.status, errorText);
+      return res.status(response.status).json({ error: 'Pagamento não encontrado', details: errorText });
     }
 
     const data = await response.json();
+    console.log('Status resposta:', data.payment?.status);
     res.json({
       success: true,
       status: data.payment?.status || 'unknown',
@@ -125,6 +130,7 @@ app.get('/payment-status/:id', async (req, res) => {
   }
 });
 
+// Webhook
 app.post('/webhook', (req, res) => {
   try {
     const { payment } = req.body;
