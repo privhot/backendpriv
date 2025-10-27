@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 10000;
 // Chaves HooPay hardcoded
 const CLIENT_ID = '69ed34bb6a849cfd32c01b16c56050ec';
 const CLIENT_SECRET = 'fbee087d641bad7eea36ebdb33fc167f3ba2a94d4d67ffe2a5bb5e8685d7fca6';
-const BASE_URL = 'https://api.hoopay.com.br'; // ← Fix: Prod API (confirme na dashboard se sandbox for diferente)
+const BASE_URL = 'https://api.hoopay.com.br'; // ← Ajuste aqui com o resultado do curl
 const CALLBACK_URL = 'https://backendpriv-1.onrender.com/webhook';
 
 const getBasicAuth = () => `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`;
@@ -45,10 +45,11 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
       data: { ip, callbackURL: CALLBACK_URL }
     };
 
-    console.log('🔹 URL HooPay:', `${BASE_URL}/charge`);
+    const fullUrl = `${BASE_URL}/api/charge`; // ← Fix tentativa: /api/charge (troque se curl mostrar outro)
+    console.log('🔹 URL HooPay Teste:', fullUrl);
     console.log('🔹 Enviando para HooPay:', JSON.stringify(bodyData, null, 2));
 
-    const response = await fetch(`${BASE_URL}/charge`, {
+    const response = await fetch(fullUrl, {
       method: 'POST',
       headers: {
         'Authorization': getBasicAuth(),
@@ -97,14 +98,15 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   }
 });
 
-// Endpoint: Status
+// Endpoint: Status (ajuste path se necessário, ex: /api/pix/consult)
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID obrigatório' });
 
   try {
-    console.log('🔍 Consultando status em:', `${BASE_URL}/pix/consult/${id}`);
-    const response = await fetch(`${BASE_URL}/pix/consult/${id}`, {
+    const fullUrl = `${BASE_URL}/api/pix/consult/${id}`; // ← Fix tentativa: /api/pix/consult
+    console.log('🔍 Consultando status em:', fullUrl);
+    const response = await fetch(fullUrl, {
       method: 'GET',
       headers: { 'Authorization': getBasicAuth() }
     });
