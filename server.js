@@ -1,7 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import cors from 'cors';
-import crypto from 'crypto'; // Pra webhook signature se precisar
+import crypto from 'crypto';
 
 const app = express();
 app.use(cors());
@@ -9,35 +9,27 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// Chaves HooPay hardcoded
+// Chaves HooPay
 const CLIENT_ID = '69ed34bb6a849cfd32c01b16c56050ec';
 const CLIENT_SECRET = 'fbee087d641bad7eea36ebdb33fc167f3ba2a94d4d67ffe2a5bb5e8685d7fca6';
-const BASE_URL = 'https://api.hoopay.com.br'; // Troque pra sandbox se teste
-const CALLBACK_URL = 'https://backendpriv-1.onrender.com/webhook'; // Seu webhook
+const BASE_URL = 'https://sandbox-api.hoopay.com.br'; // ← Mudança: Sandbox pra teste (troque pra prod se OK)
+const CALLBACK_URL = 'https://backendpriv-1.onrender.com/webhook';
 
-// Basic Auth header (base64(clientId:secret))
-const getBasicAuth = () => {
-  const credentials = `${CLIENT_ID}:${CLIENT_SECRET}`;
-  return `Basic ${Buffer.from(credentials).toString('base64')}`;
-};
+const getBasicAuth = () => `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`;
 
-// Validação básica
 const validatePixRequest = (req, res, next) => {
   const { amount, client } = req.body;
-  if (!amount || amount <= 0) {
-    return res.status(400).json({ error: 'Amount deve ser > 0' });
-  }
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount deve ser > 0' });
   if (!client?.name || !client?.email || !client?.phone || !client?.cpf || !/^\d{11}$/.test(client.cpf)) {
     return res.status(400).json({ error: 'Client: name, email, phone, cpf (11 dígitos) obrigatórios' });
   }
   next();
 };
 
-// Endpoint: Gerar PIX
 app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   try {
     const { amount, description = 'Pagamento PIX', client } = req.body;
-    const ip = req.ip || '192.168.0.1'; // IP do cliente
+    const ip = req.ip || '192.168.0.1';
 
     const bodyData = {
       amount,
@@ -47,27 +39,15 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
         phone: client.phone,
         document: client.cpf
       },
-      products: [
-        {
-          title: description, // Ex: '30 DIAS'
-          amount,
-          quantity: 1
-        }
-      ],
-      payments: [
-        {
-          type: 'pix'
-        }
-      ],
-      data: {
-        ip,
-        callbackURL: CALLBACK_URL
-      }
+      products: [{ title: description, amount, quantity: 1 }],
+      payments: [{ type: 'pix' }],
+      data: { ip, callbackURL: CALLBACK_URL }
     };
 
+    console.log('🔹 URL Teste:', `${BASE_URL}/charge`); // ← Novo log pra debug URL
     console.log('🔹 Enviando para HooPay:', JSON.stringify(bodyData, null, 2));
 
-    const response = await fetch(`${BASE_URL}/charge`, {
+    const response = await fetch(`${BASE_URL}/charge`, {  // ← Se precisar /v1/charge, adicione aqui
       method: 'POST',
       headers: {
         'Authorization': getBasicAuth(),
@@ -75,6 +55,8 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
       },
       body: JSON.stringify(bodyData)
     });
+
+    console.log('Status HooPay:', response.status); // ← Log extra
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -100,9 +82,9 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
 
     res.json({
       success: true,
-      pixCode, // Cópia e cola
-      qrCodeBase64, // Pra render QR
-      paymentId: data.orderUUID, // Pra status
+      pixCode,
+      qrCodeBase64,
+      paymentId: data.orderUUID,
       status: data.payment.status,
       expiresAt,
       createdAt: data.paymentDate
@@ -114,7 +96,7 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
   }
 });
 
-// Endpoint: Status do pagamento
+// Status e Webhook iguais ao anterior...
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID obrigatório' });
@@ -122,9 +104,7 @@ app.get('/payment-status/:id', async (req, res) => {
   try {
     const response = await fetch(`${BASE_URL}/pix/consult/${id}`, {
       method: 'GET',
-      headers: {
-        'Authorization': getBasicAuth()
-      }
+      headers: { 'Authorization': getBasicAuth() }
     });
 
     if (!response.ok) {
@@ -145,13 +125,11 @@ app.get('/payment-status/:id', async (req, res) => {
   }
 });
 
-// Endpoint: Webhook (recebe notificações da HooPay via callbackURL)
 app.post('/webhook', (req, res) => {
   try {
-    const { payment } = req.body; // Payload similar à resposta de /charge
+    const { payment } = req.body;
     console.log('🔄 Webhook HooPay recebido:', req.body.orderUUID, 'Status:', payment?.status);
-    // TODO: Atualize DB, libere acesso, envie email se status === 'paid'
-    res.status(200).send('OK'); // HooPay espera 200
+    res.status(200).send('OK');
   } catch (e) {
     console.error('❌ Erro webhook:', e);
     res.status(500).send('Error');
