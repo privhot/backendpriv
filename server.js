@@ -12,13 +12,13 @@ const PORT = process.env.PORT || 10000;
 // Chaves SyncPay hardcoded
 const CLIENT_ID = '2c34d421-423a-43fe-82f1-135068e3fe74';
 const CLIENT_SECRET = '4c20d31d-c68a-44f5-ad88-eedd5d6dae1e';
-const BASE_URL = 'https://api.trysynch.com'; // URL real da doc SyncPay/SynchPay
+const BASE_URL = 'https://api.syncpayments.com.br';
 
-// Cache simples pro token (evita regenerar toda hora)
+// Cache pro token
 let cachedToken = null;
-let tokenExpiry = 0; // Timestamp de expiração
+let tokenExpiry = 0;
 
-// Função pra pegar/regenerar token
+// Função pra pegar/regenerar token (OAuth2 Client Credentials)
 async function getAccessToken() {
   const now = Date.now();
   if (cachedToken && now < tokenExpiry) {
@@ -28,25 +28,32 @@ async function getAccessToken() {
 
   try {
     console.log('🔑 Gerando novo token SyncPay...');
-    const response = await fetch(`${BASE_URL}/Authentication/Token`, {
+
+    // Basic Auth: base64(client_id:client_secret)
+    const basicAuth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+
+    const response = await fetch(`${BASE_URL}/token`, { // Ou /Authentication/Token se for o caso
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, // Sem Authorization aqui!
-      body: JSON.stringify({
-        clientId: CLIENT_ID,
-        clientSecret: CLIENT_SECRET
-      })
+      headers: {
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type': 'application/x-www-form-urlencoded' // Form em vez de JSON
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials'
+      }).toString() // Body form-encoded
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ Erro ao gerar token:', response.status, errorText);
-      throw new Error(`Falha na autenticação SyncPay: ${response.status}`);
+      throw new Error(`Falha na autenticação SyncPay: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    cachedToken = data.accessToken;
-    tokenExpiry = now + (data.expiresInSeconds * 1000) - 300000; // Cache por 5 min antes de expiry
-    console.log('✅ Token gerado (expira em', data.expiresInSeconds, 's)');
+    cachedToken = data.access_token || data.accessToken; // Pode ser access_token ou accessToken
+    const expiresIn = data.expires_in || 3600; // Default 1h
+    tokenExpiry = now + (expiresIn * 1000) - 300000; // Cache 5 min antes
+    console.log('✅ Token gerado (expira em', expiresIn, 's)');
     return cachedToken;
   } catch (e) {
     console.error('❌ Erro getToken:', e);
@@ -177,7 +184,7 @@ app.post('/webhook', (req, res) => {
     const { event, data } = req.body;
     if (event === 'cash_in.status_updated') {
       console.log('🔄 Webhook recebido:', data.id, 'Status:', data.status);
-      // TODO: Libere acesso, etc.
+      // TODO: Atualize DB
     }
     res.status(200).send('OK');
   } catch (e) {
