@@ -1,17 +1,49 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import cors from 'cors';
-import crypto from 'crypto'; // Nativo pra webhook
+import crypto from 'crypto'; // Pra webhook
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
-const SYNC_TOKEN = 'c868ca1a-4f65-4a3e-b545-fd71ba4fec3b'; // Hardcoded – troque pelo seu real!
-const SYNC_SECRET = 'sua_chave_secreta_webhook_aqui'; // Opcional, hardcoded também
 
-// Validação básica pro /gerar-pix
+// Suas chaves SyncPay hardcoded
+const CLIENT_ID = '2c34d421-423a-43fe-82f1-135068e3fe74';
+const CLIENT_SECRET = '4c20d31d-c68a-44f5-ad88-eedd5d6dae1e';
+const BASE_URL = 'https://api.syncpayments.com.br';
+
+// Função pra gerar token Bearer (chamada a cada /gerar-pix)
+async function getAccessToken() {
+  try {
+    console.log('🔑 Gerando token SyncPay...');
+    const response = await fetch(`${BASE_URL}/Authentication/Token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: CLIENT_ID,
+        clientSecret: CLIENT_SECRET
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Erro ao gerar token:', response.status, errorText);
+      throw new Error(`Falha na autenticação SyncPay: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const token = data.accessToken;
+    console.log('✅ Token gerado (expira em', data.expiresInSeconds, 's)');
+    return token;
+  } catch (e) {
+    console.error('❌ Erro getToken:', e);
+    throw e;
+  }
+}
+
+// Validação básica
 const validatePixRequest = (req, res, next) => {
   const { amount, currency = 'BRL', client } = req.body;
   if (!amount || amount <= 0) {
@@ -26,25 +58,29 @@ const validatePixRequest = (req, res, next) => {
   next();
 };
 
-// Endpoint: Gerar PIX (POST /gerar-pix)
+// Endpoint: Gerar PIX
 app.post('/gerar-pix', validatePixRequest, async (req, res) => {
+  let token;
   try {
-    const { amount, description = 'Pagamento PIX', callback_url = 'https://seusite.com/webhook', client } = req.body;
+    // Gera token fresco
+    token = await getAccessToken();
+
+    const { amount, description = 'Pagamento PIX', callback_url = 'https://backendpriv-1.onrender.com/webhook', client } = req.body;
 
     const bodyData = {
       amount,
       currency: 'BRL',
       description,
       callback_url,
-      ...(client && { metadata: { client } }) // Client vai pro metadata
+      ...(client && { metadata: { client } })
     };
 
     console.log('🔹 Enviando para SyncPay:', JSON.stringify(bodyData, null, 2));
 
-    const response = await fetch('https://api.syncpayments.com.br/api/partner/v1/cash-in', {
+    const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${SYNC_TOKEN}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(bodyData)
@@ -69,7 +105,6 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
 
     console.log('✅ Resposta JSON da SyncPay:', JSON.stringify(data, null, 2));
 
-    // Extrai PIX: prioriza copy_paste
     const pix = data.pix || {};
     const pixCode = pix.copy_paste || pix.pix_copy_paste || pix.brcode || null;
 
@@ -79,29 +114,34 @@ app.post('/gerar-pix', validatePixRequest, async (req, res) => {
 
     res.json({
       success: true,
-      pixCode, // String pra cópia e cola no frontend
-      qrCodeBase64: pix.qrcode || null, // Pra renderizar QR
+      pixCode,
+      qrCodeBase64: pix.qrcode || null,
       paymentId: data.id,
       status: data.status,
-      expiresIn: data.expires_in, // Em segundos
+      expiresIn: data.expires_in,
       createdAt: data.created_at
     });
 
   } catch (e) {
-    console.error('❌ Erro backend:', e);
+    console.error('❌ Erro backend (inclui token):', e);
     res.status(500).json({ error: 'Erro interno ao gerar PIX', details: e.message });
   }
 });
 
-// Endpoint: Status do pagamento (GET /payment-status/:id)
+// Endpoint: Status (usa token fresco também)
 app.get('/payment-status/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID obrigatório' });
 
+  let token;
   try {
-    const response = await fetch(`https://api.syncpayments.com.br/api/partner/v1/cash-in/${id}`, {
+    token = await getAccessToken();
+
+    const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in/${id}`, {
       method: 'GET',
-      headers: { 'Authorization': `Bearer ${SYNC_TOKEN}` }
+      headers: { 
+        'Authorization': `Bearer ${token}` 
+      }
     });
 
     if (!response.ok) {
@@ -123,29 +163,22 @@ app.get('/payment-status/:id', async (req, res) => {
   }
 });
 
-// Endpoint: Webhook (POST /webhook) - Recebe updates da SyncPay
+// Webhook (sem token, SyncPay envia pra cá)
 app.post('/webhook', (req, res) => {
   try {
     const { event, data } = req.body;
     const signature = req.headers['x-syncpay-signature'];
 
-    // Verifica signature se SYNC_SECRET configurado
-    if (SYNC_SECRET) {
-      const payload = JSON.stringify(req.body);
-      const computedSig = crypto.createHmac('sha256', SYNC_SECRET).update(payload).digest('hex');
-      if (signature !== computedSig) {
-        console.error('❌ Webhook signature inválida');
-        return res.status(401).send('Unauthorized');
-      }
-    }
+    // Verifica signature se você tiver SYNC_SECRET (adicione hardcoded se quiser)
+    // const SYNC_SECRET = 'sua_chave_secreta';
+    // if (SYNC_SECRET) { ... } // Mesmo código anterior
 
     if (event === 'cash_in.status_updated') {
       console.log('🔄 Webhook recebido:', data.id, 'Status:', data.status);
-      // TODO: Aqui atualize seu DB, envie email, etc.
-      // Ex: if (data.status === 'paid') { /* Libere acesso ao site */ }
+      // TODO: Atualize DB, libere acesso, etc.
     }
 
-    res.status(200).send('OK'); // SyncPay espera 200 pra confirmar
+    res.status(200).send('OK');
   } catch (e) {
     console.error('❌ Erro webhook:', e);
     res.status(500).send('Error');
